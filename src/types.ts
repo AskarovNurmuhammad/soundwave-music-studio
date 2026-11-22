@@ -11,6 +11,8 @@ export interface Track {
   isFavorite: boolean;
   audioUrl?: string;
   isOnline?: boolean;
+  isFull?: boolean;
+  hasFull?: boolean;
 }
 
 export type VisualizerMode = 'bars' | 'wave' | 'pulse';
@@ -41,6 +43,7 @@ export interface HistoryItem {
   genre: string;
   duration: number;
   playedAt: string;
+  isFull?: boolean;
 }
 
 export interface FavoriteItem {
@@ -53,4 +56,5 @@ export interface FavoriteItem {
   genre: string;
   duration: number;
   createdAt: string;
+  isFull?: boolean;
 }

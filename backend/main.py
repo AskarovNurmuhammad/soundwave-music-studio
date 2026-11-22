@@ -8,10 +8,11 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+import yt_dlp
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "soundwave.db")
 
-app = FastAPI(title="SoundWave Studio API", version="1.0.0")
+app = FastAPI(title="SoundWave Studio API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +21,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+FULL_AUDIO_CACHE = {}
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -232,7 +235,6 @@ def add_to_history(track: TrackData, user = Depends(require_current_user)):
     conn = get_db()
     cursor = conn.cursor()
     now = datetime.now().isoformat()
-    # Delete recent duplicate to keep history clean
     cursor.execute("DELETE FROM history WHERE user_id = ? AND track_id = ?", (user["id"], track.id))
     cursor.execute(
         """
@@ -336,7 +338,6 @@ def search_music(q: str):
                 continue
             artwork = item.get("artworkUrl100", "")
             if artwork:
-                # Upgrade to high resolution 600x600 artwork
                 artwork = artwork.replace("100x100bb.jpg", "600x600bb.jpg")
 
             duration_sec = int((item.get("trackTimeMillis", 0)) / 1000)
@@ -350,7 +351,8 @@ def search_music(q: str):
                 "audioUrl": preview_url,
                 "genre": item.get("primaryGenreName", "Pop"),
                 "duration": duration_sec,
-                "isOnline": True
+                "isOnline": True,
+                "hasFull": True
             })
 
         return {"results": results}
@@ -359,7 +361,6 @@ def search_music(q: str):
 
 @app.get("/api/trending")
 def get_trending():
-    trending_queries = ["top hits", "synthwave", "lo-fi chill", "global top"]
     query = "top hits 2026"
     try:
         resp = requests.get(
@@ -393,11 +394,56 @@ def get_trending():
                 "audioUrl": preview_url,
                 "genre": item.get("primaryGenreName", "Pop"),
                 "duration": duration_sec,
-                "isOnline": True
+                "isOnline": True,
+                "hasFull": True
             })
         return {"results": results}
     except Exception as e:
         return {"results": [], "error": str(e)}
+
+# Full-Length Audio Extraction Endpoint (Full 3-5 Minute Songs!)
+@app.get("/api/full_audio")
+def get_full_audio(q: str):
+    query = q.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Qidiruv so'zi bo'sh")
+
+    if query in FULL_AUDIO_CACHE:
+        return FULL_AUDIO_CACHE[query]
+
+    try:
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # First search with 'audio'
+            info = ydl.extract_info(f"ytsearch1:{query} audio", download=False)
+            if not info or not info.get('entries'):
+                info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+
+            if not info or not info.get('entries'):
+                raise HTTPException(status_code=404, detail="To'liq audio topilmadi")
+
+            entry = info['entries'][0]
+            audio_url = entry.get('url')
+            duration = entry.get('duration', 210)
+            title = entry.get('title')
+
+            res = {
+                "success": True,
+                "audioUrl": audio_url,
+                "duration": duration,
+                "title": title,
+                "isFull": True
+            }
+            FULL_AUDIO_CACHE[query] = res
+            return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

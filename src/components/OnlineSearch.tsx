@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Play, Pause, Heart, Sparkles, Music2, Loader2, Disc } from 'lucide-react';
-import { searchTracks, fetchTrendingTracks } from '../api';
+import { Search, Play, Pause, Heart, Sparkles, Music2, Loader2, Disc, Flame } from 'lucide-react';
+import { searchTracks, fetchTrendingTracks, fetchFullAudio } from '../api';
 import type { Track } from '../types';
 
 interface OnlineSearchProps {
@@ -34,6 +34,7 @@ export default function OnlineSearch({
   const [results, setResults] = useState<any[]>([]);
   const [trending, setTrending] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingFullId, setLoadingFullId] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
 
   // Load trending songs initially
@@ -65,6 +66,62 @@ export default function OnlineSearch({
     }
   };
 
+  const handlePlayFullSong = async (item: any) => {
+    setLoadingFullId(item.id);
+    try {
+      const fullData = await fetchFullAudio(`${item.title} ${item.artist}`);
+      const mappedTrack: Track = {
+        id: item.id,
+        title: item.title,
+        artist: item.artist,
+        album: item.album || 'Full Track',
+        duration: fullData.duration || 210,
+        coverUrl: item.coverUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
+        genre: item.genre || 'Pop',
+        bpm: 120,
+        lyrics: [
+          `[00:00] ${item.title} — ${item.artist}`,
+          `[00:10] To'liq versiya (Full Song Edition) faol!`,
+          `[00:30] Real-vaqtli Web Audio Spektri ishlamoqda.`
+        ],
+        isFavorite: false,
+        audioUrl: fullData.audioUrl,
+        isOnline: true,
+        isFull: true
+      };
+      onPlayTrack(mappedTrack);
+    } catch (err) {
+      alert("To'liq audio yuklashda xatolik yuz berdi, qisqa versiyasi yoqiladi.");
+      // Fallback to preview
+      handlePlayPreview(item);
+    } finally {
+      setLoadingFullId(null);
+    }
+  };
+
+  const handlePlayPreview = (item: any) => {
+    const mappedTrack: Track = {
+      id: item.id,
+      title: item.title,
+      artist: item.artist,
+      album: item.album || 'Single',
+      duration: item.duration || 30,
+      coverUrl: item.coverUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
+      genre: item.genre || 'Pop',
+      bpm: 120,
+      lyrics: [
+        `[00:00] ${item.title} — ${item.artist}`,
+        `[00:05] Audio oqim: Original Master Stream`,
+        `[00:15] To'liq versiyani eshitish uchun 'To'liq (Full)' tugmasini bosing!`
+      ],
+      isFavorite: false,
+      audioUrl: item.audioUrl,
+      isOnline: true,
+      isFull: false
+    };
+    onPlayTrack(mappedTrack);
+  };
+
   const formatDuration = (sec?: number) => {
     if (!sec) return '0:30';
     const m = Math.floor(sec / 60);
@@ -83,13 +140,13 @@ export default function OnlineSearch({
         <div className="relative z-10 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 text-purple-500 text-xs font-bold border border-purple-500/20 mb-3">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Internet Musiqa Qidiruvi & Haqiqiy Treklar</span>
+            <span>To'liq Musiqalar & Real-Time Audio Qidiruv</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
-            Istalgan Qo'shiq yoki Ijrochini Toping
+            Istalgan Qo'shiqni To'liq (Full 3-5 daqiqa) Tinglang
           </h2>
           <p className={`text-xs sm:text-sm mt-1.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
-            Dunyo va o'zbek estradasi yulduzlarining original treklari, yuqori sifatli audio va jonli vizualizatsiya.
+            Dunyo va o'zbek estradasi yulduzlarining asl to'liq kompozitsiyalari, original audio oqimlari va jonli vizualizatsiya.
           </p>
 
           {/* Search Input Box */}
@@ -124,7 +181,7 @@ export default function OnlineSearch({
           {/* Quick Search Tags */}
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <span className={`text-[11px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-              Mashhur qidiruvlar:
+              Mashhur ijrochilar:
             </span>
             {POPULAR_QUERIES.map(chip => (
               <button
@@ -187,80 +244,97 @@ export default function OnlineSearch({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {displayedList.map((item) => {
             const isThisPlaying = isPlaying && currentTrackId === item.id;
-
-            const mappedTrack: Track = {
-              id: item.id,
-              title: item.title,
-              artist: item.artist,
-              album: item.album || 'Single',
-              duration: item.duration || 30,
-              coverUrl: item.coverUrl || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500',
-              genre: item.genre || 'Pop',
-              bpm: 120,
-              lyrics: [
-                `[00:00] ${item.title} — ${item.artist}`,
-                `[00:05] Original stream via SoundWave Web Audio`,
-                `[00:15] Real-time audio spectrum & equalizer active`
-              ],
-              isFavorite: false,
-              audioUrl: item.audioUrl,
-              isOnline: true
-            };
+            const isFetchingFull = loadingFullId === item.id;
 
             return (
               <div
                 key={item.id}
-                className={`p-3.5 rounded-2xl border transition-all duration-200 flex items-center justify-between gap-3.5 group ${
+                className={`p-3.5 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-3 group ${
                   isThisPlaying
                     ? isDark ? 'bg-purple-900/20 border-purple-500/50 shadow-md shadow-purple-500/10' : 'bg-purple-50 border-purple-300 shadow-xs'
                     : isDark ? 'bg-[#121826] border-slate-800 hover:border-slate-700' : 'bg-white border-slate-200 hover:border-purple-200 shadow-xs'
                 }`}
               >
-                {/* Cover with Play Overlay */}
-                <div className="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 shadow-xs">
-                  <img
-                    src={item.coverUrl}
-                    alt={item.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                  />
-                  <button
-                    onClick={() => onPlayTrack(mappedTrack)}
-                    className="absolute inset-0 bg-black/40 hover:bg-black/50 flex items-center justify-center text-white transition-opacity cursor-pointer"
-                  >
-                    {isThisPlaying ? (
-                      <Pause className="w-5 h-5 fill-current text-pink-400" />
-                    ) : (
-                      <Play className="w-5 h-5 fill-current ml-0.5 text-white" />
-                    )}
-                  </button>
-                </div>
-
-                {/* Track Details */}
-                <div className="min-w-0 flex-1">
-                  <h4 className={`font-bold text-xs sm:text-sm truncate ${isThisPlaying ? 'text-purple-400' : ''}`}>
-                    {item.title}
-                  </h4>
-                  <p className="text-[11px] text-slate-400 truncate">
-                    {item.artist}
-                  </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-400 font-semibold truncate max-w-[100px]">
-                      {item.genre}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-400">
-                      {formatDuration(item.duration)}
-                    </span>
+                <div className="flex items-center gap-3.5">
+                  {/* Cover with Play Overlay */}
+                  <div className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 shadow-xs">
+                    <img
+                      src={item.coverUrl}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                    />
+                    <button
+                      onClick={() => handlePlayPreview(item)}
+                      className="absolute inset-0 bg-black/40 hover:bg-black/50 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                      title="Tezkor tinglash"
+                    >
+                      {isThisPlaying ? (
+                        <Pause className="w-5 h-5 fill-current text-pink-400" />
+                      ) : (
+                        <Play className="w-5 h-5 fill-current ml-0.5 text-white" />
+                      )}
+                    </button>
                   </div>
-                </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-1 shrink-0">
+                  {/* Track Details */}
+                  <div className="min-w-0 flex-1">
+                    <h4 className={`font-bold text-xs sm:text-sm truncate ${isThisPlaying ? 'text-purple-400' : ''}`}>
+                      {item.title}
+                    </h4>
+                    <p className="text-[11px] text-slate-400 truncate">
+                      {item.artist}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-500/10 text-slate-400 font-semibold truncate max-w-[100px]">
+                        {item.genre}
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400">
+                        {formatDuration(item.duration)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Favorite Button */}
                   <button
-                    onClick={() => onToggleFavorite(mappedTrack)}
-                    className="p-2 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                    onClick={() => onToggleFavorite({
+                      id: item.id,
+                      title: item.title,
+                      artist: item.artist,
+                      album: item.album || 'Single',
+                      duration: item.duration || 30,
+                      coverUrl: item.coverUrl,
+                      genre: item.genre || 'Pop',
+                      bpm: 120,
+                      lyrics: [],
+                      isFavorite: false,
+                      audioUrl: item.audioUrl,
+                      isOnline: true
+                    })}
+                    className="p-2 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer self-start"
                     title="Sevimlilarga qo'shish"
                   >
                     <Heart className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Full Track Trigger Button */}
+                <div className="pt-2 border-t border-inherit flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => handlePlayFullSong(item)}
+                    disabled={isFetchingFull}
+                    className="flex-1 py-1.5 px-3 rounded-xl bg-gradient-to-r from-purple-600/90 to-pink-600/90 hover:from-purple-600 hover:to-pink-600 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isFetchingFull ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>To'liq audio yuklanmoqda...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Flame className="w-3.5 h-3.5 text-amber-300 fill-current" />
+                        <span>To'liq Qo'shiq (Full 3-5 min)</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

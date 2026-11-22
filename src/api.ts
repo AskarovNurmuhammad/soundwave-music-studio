@@ -125,3 +125,7 @@ export async function searchTracks(query: string) {
 export async function fetchTrendingTracks() {
   return apiRequest('/trending');
 }
+
+export async function fetchFullAudio(query: string) {
+  return apiRequest(`/full_audio?q=${encodeURIComponent(query)}`);
+}

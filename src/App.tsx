@@ -24,7 +24,9 @@ import {
   Clock,
   User as UserIcon,
   LogOut,
-  Globe
+  Globe,
+  Flame,
+  Loader2
 } from 'lucide-react';
 import AudioVisualizer from './components/AudioVisualizer';
 import AuthModal from './components/AuthModal';
@@ -36,7 +38,8 @@ import {
   logoutUser,
   saveToHistory,
   toggleFavoriteApi,
-  getAuthToken
+  getAuthToken,
+  fetchFullAudio
 } from './api';
 import type { Track, VisualizerMode, EqualizerPreset, AmbientSound, User } from './types';
 
@@ -56,7 +59,8 @@ const INITIAL_TRACKS: Track[] = [
       '[01:20] Xatoliklar tuzatildi, funksiyalar silliq ishlamoqda.',
       '[02:15] Fikrlar tiniqlashdi, mukammal arxitektura.'
     ],
-    isFavorite: true
+    isFavorite: true,
+    isFull: true
   },
   {
     id: 'track-2',
@@ -72,7 +76,8 @@ const INITIAL_TRACKS: Track[] = [
       '[00:50] Tezlik 180 km/soat, bas to\'lqinlari yurakni larzaga soladi.',
       '[01:30] Kiber dunyo, yangi texnologiyalar davri.'
     ],
-    isFavorite: true
+    isFavorite: true,
+    isFull: true
   },
   {
     id: 'track-3',
@@ -88,7 +93,8 @@ const INITIAL_TRACKS: Track[] = [
       '[00:40] Yangi qovurilgan kofe ifori va sokin gitara akkordi.',
       '[01:15] O\'qish va ilhom olish uchun eng sokin fursat.'
     ],
-    isFavorite: false
+    isFavorite: false,
+    isFull: true
   },
   {
     id: 'track-4',
@@ -104,7 +110,8 @@ const INITIAL_TRACKS: Track[] = [
       '[01:10] Ichki xotirjamlik va chuqur nafas olish.',
       '[02:00] Har bir nafasda yengillik va quvvat.'
     ],
-    isFavorite: false
+    isFavorite: false,
+    isFull: true
   },
   {
     id: 'track-5',
@@ -120,7 +127,8 @@ const INITIAL_TRACKS: Track[] = [
       '[00:48] Ritm ko\'tarilmoqda, harakat boshlandi!',
       '[01:25] Yengilmas quvvat va yangi yutuqlar sari.'
     ],
-    isFavorite: true
+    isFavorite: true,
+    isFull: true
   }
 ];
 
@@ -164,7 +172,7 @@ export default function App() {
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
-  const [serverOnline, setServerOnline] = useState<boolean>(true);
+  const [isUpgradingFull, setIsUpgradingFull] = useState(false);
 
   // Audio elements
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -180,12 +188,9 @@ export default function App() {
         .then(data => {
           if (data && data.user) {
             setUser(data.user);
-            setServerOnline(true);
           }
         })
-        .catch(() => {
-          // Token expired or server down
-        });
+        .catch(() => {});
     }
   }, []);
 
@@ -242,8 +247,9 @@ export default function App() {
   const handlePlayCurrent = async () => {
     initAudioEngine();
     if (currentTrack.audioUrl && audioElRef.current) {
-      audioElRef.current.src = currentTrack.audioUrl;
-      audioElRef.current.currentTime = currentTime;
+      if (audioElRef.current.src !== currentTrack.audioUrl) {
+        audioElRef.current.src = currentTrack.audioUrl;
+      }
       try {
         await audioElRef.current.play();
         setIsPlaying(true);
@@ -255,7 +261,6 @@ export default function App() {
       setIsPlaying(true);
     }
 
-    // Tarixga yozib qo'yish (agar user tizimda bo'lsa)
     if (user) {
       saveToHistory({
         id: currentTrack.id,
@@ -281,9 +286,38 @@ export default function App() {
     }
   };
 
+  // To'liq (Full) qo'shiqqa o'tish
+  const handleUpgradeToFullSong = async () => {
+    if (isUpgradingFull) return;
+    setIsUpgradingFull(true);
+    try {
+      const data = await fetchFullAudio(`${currentTrack.title} ${currentTrack.artist}`);
+      const updated: Track = {
+        ...currentTrack,
+        audioUrl: data.audioUrl,
+        duration: data.duration || 210,
+        isFull: true,
+        isOnline: true
+      };
+
+      setTracks(prev => prev.map(t => (t.id === currentTrack.id ? updated : t)));
+
+      if (audioElRef.current) {
+        audioElRef.current.src = data.audioUrl;
+        audioElRef.current.currentTime = 0;
+        await audioElRef.current.play();
+        setIsPlaying(true);
+      }
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.7 } });
+    } catch {
+      alert("To'liq audio topilmadi yoki internet sekin, hozirgi formatda davom etiladi.");
+    } finally {
+      setIsUpgradingFull(false);
+    }
+  };
+
   // Internet qidiruv yoki boshqa joydan trek tanlanganda
   const handleSelectTrackToPlay = (newTrack: Track) => {
-    // Agar mavjud bo'lsa topamiz, bo'lmasa playlistga qo'shamiz
     const existingIndex = tracks.findIndex(t => t.id === newTrack.id);
     if (existingIndex !== -1) {
       setCurrentTrackIndex(existingIndex);
@@ -400,12 +434,10 @@ export default function App() {
     const nextState = !track.isFavorite;
     if (nextState) confetti({ particleCount: 35, spread: 50, origin: { y: 0.8 } });
 
-    // Lokal yangilash
     setTracks(prev =>
       prev.map(t => (t.id === track.id ? { ...t, isFavorite: nextState } : t))
     );
 
-    // Agar tizimga kirgan bo'lsa, backendga yuborish
     if (user) {
       toggleFavoriteApi({
         id: track.id,
@@ -471,7 +503,6 @@ export default function App() {
       {/* Real Audio Stream Element */}
       <audio
         ref={audioElRef}
-        crossOrigin="anonymous"
         onTimeUpdate={() => {
           if (audioElRef.current) {
             setCurrentTime(Math.floor(audioElRef.current.currentTime));
@@ -499,7 +530,7 @@ export default function App() {
                 </span>
               </div>
               <p className={`text-[11px] font-medium hidden sm:block ${themeClasses.textMuted}`}>
-                Web Audio & Real-Time Music Engine
+                Web Audio & Full-Length Streaming Engine
               </p>
             </div>
           </div>
@@ -580,11 +611,9 @@ export default function App() {
 
           {/* O'ng tomon: User Profile & EQ & Theme */}
           <div className="flex items-center gap-2.5">
-
-            {/* Server Online Status */}
             <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-500 text-[11px] font-bold border border-emerald-500/20">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>FastAPI Online</span>
+              <span>FastAPI Full Stream</span>
             </div>
 
             {/* Equalizer Preset Selector */}
@@ -602,7 +631,7 @@ export default function App() {
               <option value="Flat">⚖️ Flat</option>
             </select>
 
-            {/* Foydalanuvchi hisobi (Auth) tugmasi */}
+            {/* Foydalanuvchi hisobi (Auth) */}
             {user ? (
               <div className="flex items-center gap-2 pl-1">
                 <div
@@ -684,9 +713,36 @@ export default function App() {
 
             {/* Trek ma'lumotlari va mini spektr */}
             <div className="flex-1 text-center md:text-left space-y-3 z-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/10 text-pink-500 text-xs font-bold border border-pink-500/20">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{currentTrack.genre} • {currentTrack.bpm || 120} BPM {currentTrack.isOnline && '• 🌐 Online Stream'}</span>
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-2">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/10 text-pink-500 text-xs font-bold border border-pink-500/20">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{currentTrack.genre} • {currentTrack.bpm || 120} BPM</span>
+                </div>
+
+                {currentTrack.isFull ? (
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-400 text-xs font-bold border border-amber-500/30">
+                    <Flame className="w-3.5 h-3.5 fill-current text-amber-400" />
+                    <span>To'liq Qo'shiq (Full Version)</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleUpgradeToFullSong}
+                    disabled={isUpgradingFull}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-bold shadow-md shadow-orange-500/20 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                  >
+                    {isUpgradingFull ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>To'liq audio yuklanmoqda...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Flame className="w-3.5 h-3.5 fill-current" />
+                        <span>To'liq Versiyaga O'tish (Full 3-5 min)</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
               <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
@@ -809,9 +865,9 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-4 text-xs">
-                        {track.isOnline && (
-                          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-bold text-[10px]">
-                            Online
+                        {track.isFull && (
+                          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 font-bold text-[10px]">
+                            Full Song
                           </span>
                         )}
 
@@ -1012,7 +1068,14 @@ export default function App() {
               className={`w-12 h-12 rounded-xl object-cover shrink-0 shadow-md ${isPlaying && 'animate-pulse'}`}
             />
             <div className="min-w-0 flex-1">
-              <h4 className="font-extrabold text-xs sm:text-sm truncate">{currentTrack.title}</h4>
+              <div className="flex items-center gap-1.5">
+                <h4 className="font-extrabold text-xs sm:text-sm truncate">{currentTrack.title}</h4>
+                {currentTrack.isFull && (
+                  <span title="To'liq Qo'shiq (Full)">
+                    <Flame className="w-3.5 h-3.5 text-amber-400 fill-current shrink-0" />
+                  </span>
+                )}
+              </div>
               <p className={`text-[11px] truncate ${themeClasses.textMuted}`}>{currentTrack.artist}</p>
             </div>
             <button
