@@ -12,25 +12,33 @@ import {
   Heart,
   Music,
   Headphones,
-  Sliders,
   Sparkles,
   Search,
   Sun,
   Moon,
   Disc3,
   CloudRain,
-  Flame,
-  Coffee,
-  Trees,
   Radio,
-  ListMusic,
   Activity,
   FileText,
   Clock,
-  Maximize2
+  User as UserIcon,
+  LogOut,
+  Globe
 } from 'lucide-react';
 import AudioVisualizer from './components/AudioVisualizer';
-import type { Track, VisualizerMode, EqualizerPreset, AmbientSound } from './types';
+import AuthModal from './components/AuthModal';
+import OnlineSearch from './components/OnlineSearch';
+import HistoryView from './components/HistoryView';
+import FavoritesView from './components/FavoritesView';
+import {
+  fetchCurrentUser,
+  logoutUser,
+  saveToHistory,
+  toggleFavoriteApi,
+  getAuthToken
+} from './api';
+import type { Track, VisualizerMode, EqualizerPreset, AmbientSound, User } from './types';
 
 const INITIAL_TRACKS: Track[] = [
   {
@@ -133,15 +141,15 @@ export default function App() {
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(80);
+  const [volume, setVolume] = useState<number>(85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isShuffle, setIsShuffle] = useState<boolean>(false);
   const [isLoop, setIsLoop] = useState<boolean>(false);
 
-  // Sozlamalar va ko'rinish
+  // Navigatsiya va sozlamalar
   const [visualizerMode, setVisualizerMode] = useState<VisualizerMode>('bars');
   const [equalizer, setEqualizer] = useState<EqualizerPreset>('Bass Boost');
-  const [activeTab, setActiveTab] = useState<'player' | 'visualizer' | 'ambient' | 'lyrics'>('player');
+  const [activeTab, setActiveTab] = useState<'player' | 'search' | 'history' | 'favorites' | 'visualizer' | 'ambient' | 'lyrics'>('player');
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
@@ -149,20 +157,50 @@ export default function App() {
   // Ambient fon tovushlari
   const [ambientSounds, setAmbientSounds] = useState<AmbientSound[]>(AMBIENT_SOUNDS);
 
-  // Web Audio Sintetizator konteksti
+  // Foydalanuvchi hisobi & Auth
+  const [user, setUser] = useState<User | null>(() => {
+    const saved = localStorage.getItem('sw_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+  const [serverOnline, setServerOnline] = useState<boolean>(true);
+
+  // Audio elements
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const oscillatorRef = useRef<OscillatorNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
 
   const isDark = theme === 'dark';
   const currentTrack = tracks[currentTrackIndex] || tracks[0];
 
-  // Save to localStorage
+  // Auth holatini server bilan tekshirish
+  useEffect(() => {
+    if (getAuthToken()) {
+      fetchCurrentUser()
+        .then(data => {
+          if (data && data.user) {
+            setUser(data.user);
+            setServerOnline(true);
+          }
+        })
+        .catch(() => {
+          // Token expired or server down
+        });
+    }
+  }, []);
+
+  // Save tracks to localStorage
   useEffect(() => {
     localStorage.setItem('sw_tracks', JSON.stringify(tracks));
   }, [tracks]);
 
-  // Audio sintetizatorni boshqarish (Haqiqiy yoqimli Lo-Fi tonlar generatsiyasi)
+  // Audio HTML5 player boshqaruvi
+  useEffect(() => {
+    if (!audioElRef.current) return;
+    audioElRef.current.volume = isMuted ? 0 : volume / 100;
+  }, [volume, isMuted]);
+
+  // Web Audio Sintetizator konteksti
   const initAudioEngine = () => {
     if (!audioCtxRef.current) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -174,12 +212,10 @@ export default function App() {
     try {
       initAudioEngine();
       if (!audioCtxRef.current) return;
-
       if (audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume();
       }
 
-      // Past chastotali yoqimli bas va akkord
       const osc = audioCtxRef.current.createOscillator();
       const gain = audioCtxRef.current.createGain();
 
@@ -198,32 +234,102 @@ export default function App() {
       osc.start();
       osc.stop(audioCtxRef.current.currentTime + 0.8);
     } catch {
-      // Audio autoplay policy fallback
+      // autoplay fallback
     }
   };
 
-  // Play / Pause boshqaruvi
-  const togglePlay = () => {
-    if (!isPlaying) {
-      initAudioEngine();
+  // Trek o'zgarganda yoki ijro boshlanganda
+  const handlePlayCurrent = async () => {
+    initAudioEngine();
+    if (currentTrack.audioUrl && audioElRef.current) {
+      audioElRef.current.src = currentTrack.audioUrl;
+      audioElRef.current.currentTime = currentTime;
+      try {
+        await audioElRef.current.play();
+        setIsPlaying(true);
+      } catch {
+        setIsPlaying(false);
+      }
+    } else {
       playSynthesizerBeat();
       setIsPlaying(true);
+    }
+
+    // Tarixga yozib qo'yish (agar user tizimda bo'lsa)
+    if (user) {
+      saveToHistory({
+        id: currentTrack.id,
+        title: currentTrack.title,
+        artist: currentTrack.artist,
+        coverUrl: currentTrack.coverUrl,
+        audioUrl: currentTrack.audioUrl,
+        genre: currentTrack.genre,
+        duration: currentTrack.duration
+      }).catch(() => {});
+    }
+  };
+
+  // Play / Pause toggle
+  const togglePlay = () => {
+    if (!isPlaying) {
+      handlePlayCurrent();
     } else {
+      if (audioElRef.current && currentTrack.audioUrl) {
+        audioElRef.current.pause();
+      }
       setIsPlaying(false);
     }
   };
 
-  // Trek vaqti hisoblagichi
+  // Internet qidiruv yoki boshqa joydan trek tanlanganda
+  const handleSelectTrackToPlay = (newTrack: Track) => {
+    // Agar mavjud bo'lsa topamiz, bo'lmasa playlistga qo'shamiz
+    const existingIndex = tracks.findIndex(t => t.id === newTrack.id);
+    if (existingIndex !== -1) {
+      setCurrentTrackIndex(existingIndex);
+    } else {
+      setTracks(prev => [newTrack, ...prev]);
+      setCurrentTrackIndex(0);
+    }
+
+    setCurrentTime(0);
+    setTimeout(() => {
+      initAudioEngine();
+      if (audioElRef.current && newTrack.audioUrl) {
+        audioElRef.current.src = newTrack.audioUrl;
+        audioElRef.current.currentTime = 0;
+        audioElRef.current.play()
+          .then(() => setIsPlaying(true))
+          .catch(() => setIsPlaying(false));
+      } else {
+        setIsPlaying(true);
+        playSynthesizerBeat();
+      }
+
+      if (user) {
+        saveToHistory({
+          id: newTrack.id,
+          title: newTrack.title,
+          artist: newTrack.artist,
+          coverUrl: newTrack.coverUrl,
+          audioUrl: newTrack.audioUrl,
+          genre: newTrack.genre,
+          duration: newTrack.duration
+        }).catch(() => {});
+      }
+    }, 50);
+  };
+
+  // Sintetik treklar uchun timer
   useEffect(() => {
     let interval: any = null;
-    if (isPlaying) {
+    if (isPlaying && !currentTrack.audioUrl) {
       interval = setInterval(() => {
         setCurrentTime((prev) => {
           if (prev >= currentTrack.duration) {
             handleNextTrack();
             return 0;
           }
-          // Har 3 soniyada fon ritm pulsatsiyasi
           if (prev % 3 === 0) playSynthesizerBeat();
           return prev + 1;
         });
@@ -235,35 +341,89 @@ export default function App() {
   // Keyingi trek
   const handleNextTrack = () => {
     setCurrentTime(0);
+    let nextIdx = 0;
     if (isShuffle) {
-      const randomIndex = Math.floor(Math.random() * tracks.length);
-      setCurrentTrackIndex(randomIndex);
+      nextIdx = Math.floor(Math.random() * tracks.length);
     } else {
-      setCurrentTrackIndex((prev) => (prev + 1) % tracks.length);
+      nextIdx = (currentTrackIndex + 1) % tracks.length;
     }
-    playSynthesizerBeat();
+    setCurrentTrackIndex(nextIdx);
+
+    const nextTrack = tracks[nextIdx];
+    setTimeout(() => {
+      if (nextTrack?.audioUrl && audioElRef.current) {
+        audioElRef.current.src = nextTrack.audioUrl;
+        audioElRef.current.play().catch(() => {});
+        setIsPlaying(true);
+      } else {
+        playSynthesizerBeat();
+        setIsPlaying(true);
+      }
+
+      if (user && nextTrack) {
+        saveToHistory({
+          id: nextTrack.id,
+          title: nextTrack.title,
+          artist: nextTrack.artist,
+          coverUrl: nextTrack.coverUrl,
+          audioUrl: nextTrack.audioUrl,
+          genre: nextTrack.genre,
+          duration: nextTrack.duration
+        }).catch(() => {});
+      }
+    }, 50);
   };
 
   // Oldingi trek
   const handlePrevTrack = () => {
     setCurrentTime(0);
-    setCurrentTrackIndex((prev) => (prev - 1 + tracks.length) % tracks.length);
-    playSynthesizerBeat();
+    const prevIdx = (currentTrackIndex - 1 + tracks.length) % tracks.length;
+    setCurrentTrackIndex(prevIdx);
+
+    const prevTrack = tracks[prevIdx];
+    setTimeout(() => {
+      if (prevTrack?.audioUrl && audioElRef.current) {
+        audioElRef.current.src = prevTrack.audioUrl;
+        audioElRef.current.play().catch(() => {});
+        setIsPlaying(true);
+      } else {
+        playSynthesizerBeat();
+        setIsPlaying(true);
+      }
+    }, 50);
   };
 
-  // Sevimlilarga qo'shish
-  const toggleFavorite = (id: string, e?: React.MouseEvent) => {
+  // Sevimlilarga qo'shish / o'chirish
+  const toggleFavorite = (track: Track, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+
+    const nextState = !track.isFavorite;
+    if (nextState) confetti({ particleCount: 35, spread: 50, origin: { y: 0.8 } });
+
+    // Lokal yangilash
     setTracks(prev =>
-      prev.map(t => {
-        if (t.id === id) {
-          const nextState = !t.isFavorite;
-          if (nextState) confetti({ particleCount: 35, spread: 50, origin: { y: 0.8 } });
-          return { ...t, isFavorite: nextState };
-        }
-        return t;
-      })
+      prev.map(t => (t.id === track.id ? { ...t, isFavorite: nextState } : t))
     );
+
+    // Agar tizimga kirgan bo'lsa, backendga yuborish
+    if (user) {
+      toggleFavoriteApi({
+        id: track.id,
+        title: track.title,
+        artist: track.artist,
+        coverUrl: track.coverUrl,
+        audioUrl: track.audioUrl,
+        genre: track.genre,
+        duration: track.duration
+      }).catch(() => {});
+    }
+  };
+
+  // Logout
+  const handleLogout = async () => {
+    await logoutUser();
+    setUser(null);
+    localStorage.removeItem('sw_user');
   };
 
   // Ambient tovushlar mikseri
@@ -308,12 +468,24 @@ export default function App() {
   return (
     <div className={`min-h-screen flex flex-col pb-28 transition-colors duration-200 ${themeClasses.appBg}`}>
 
+      {/* Real Audio Stream Element */}
+      <audio
+        ref={audioElRef}
+        crossOrigin="anonymous"
+        onTimeUpdate={() => {
+          if (audioElRef.current) {
+            setCurrentTime(Math.floor(audioElRef.current.currentTime));
+          }
+        }}
+        onEnded={handleNextTrack}
+      />
+
       {/* TOP HEADER */}
-      <header className={`sticky top-0 z-30 backdrop-blur-md border-b px-4 lg:px-8 py-3.5 transition-colors ${themeClasses.headerBg}`}>
+      <header className={`sticky top-0 z-30 backdrop-blur-md border-b px-4 lg:px-8 py-3 transition-colors ${themeClasses.headerBg}`}>
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
 
           {/* Logo */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('player')}>
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-pink-500 via-purple-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-pink-500/25">
               <Headphones className="w-5 h-5 animate-pulse" />
             </div>
@@ -326,42 +498,78 @@ export default function App() {
                   Studio Pro
                 </span>
               </div>
-              <p className={`text-[11px] font-medium hidden sm:block ${themeClasses.textMuted}`}>Next-Gen Audio & Lo-Fi Flow Experience</p>
+              <p className={`text-[11px] font-medium hidden sm:block ${themeClasses.textMuted}`}>
+                Web Audio & Real-Time Music Engine
+              </p>
             </div>
           </div>
 
-          {/* Tablar */}
-          <nav className={`hidden md:flex items-center gap-1 p-1 rounded-2xl border text-xs font-bold ${themeClasses.panelBg}`}>
+          {/* Desktop Tablar */}
+          <nav className={`hidden lg:flex items-center gap-1 p-1 rounded-2xl border text-xs font-bold ${themeClasses.panelBg}`}>
             <button
               onClick={() => setActiveTab('player')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'player' ? themeClasses.activeTab : themeClasses.inactiveTab
               }`}
             >
               <Music className="w-3.5 h-3.5" />
               <span>Pleyer</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('search')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer relative ${
+                activeTab === 'search' ? themeClasses.activeTab : themeClasses.inactiveTab
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5 text-pink-400" />
+              <span>Internet Qidiruv</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            </button>
+
+            <button
+              onClick={() => setActiveTab('history')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'history' ? themeClasses.activeTab : themeClasses.inactiveTab
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>Tarix</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('favorites')}
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'favorites' ? themeClasses.activeTab : themeClasses.inactiveTab
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5 text-rose-500" />
+              <span>Sevimlilar</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('visualizer')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'visualizer' ? themeClasses.activeTab : themeClasses.inactiveTab
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
-              <span>Spektr Vizualayzer</span>
+              <span>Spektr</span>
             </button>
+
             <button
               onClick={() => setActiveTab('ambient')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'ambient' ? themeClasses.activeTab : themeClasses.inactiveTab
               }`}
             >
               <CloudRain className="w-3.5 h-3.5" />
-              <span>Fokus Mikser</span>
+              <span>Mikser</span>
             </button>
+
             <button
               onClick={() => setActiveTab('lyrics')}
-              className={`px-3.5 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === 'lyrics' ? themeClasses.activeTab : themeClasses.inactiveTab
               }`}
             >
@@ -370,9 +578,16 @@ export default function App() {
             </button>
           </nav>
 
-          {/* O'ng tomon boshqaruvi */}
+          {/* O'ng tomon: User Profile & EQ & Theme */}
           <div className="flex items-center gap-2.5">
-            {/* Equalizer preset */}
+
+            {/* Server Online Status */}
+            <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-500 text-[11px] font-bold border border-emerald-500/20">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>FastAPI Online</span>
+            </div>
+
+            {/* Equalizer Preset Selector */}
             <select
               value={equalizer}
               onChange={(e) => setEqualizer(e.target.value as EqualizerPreset)}
@@ -387,10 +602,46 @@ export default function App() {
               <option value="Flat">⚖️ Flat</option>
             </select>
 
+            {/* Foydalanuvchi hisobi (Auth) tugmasi */}
+            {user ? (
+              <div className="flex items-center gap-2 pl-1">
+                <div
+                  onClick={() => setActiveTab('history')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl border cursor-pointer transition-all ${
+                    isDark ? 'bg-slate-900 border-slate-700 hover:border-pink-500' : 'bg-white border-slate-200 hover:border-pink-500 shadow-xs'
+                  }`}
+                  title={`${user.username} - Tarixni ko'rish`}
+                >
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-pink-500 to-purple-600 flex items-center justify-center text-white text-[11px] font-bold">
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <span className="text-xs font-bold hidden sm:inline max-w-[90px] truncate">
+                    {user.username}
+                  </span>
+                </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors cursor-pointer"
+                  title="Chiqish"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setAuthModalMode('login'); setIsAuthModalOpen(true); }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white text-xs font-extrabold shadow-sm active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>Kirish</span>
+              </button>
+            )}
+
             {/* Tema almashtirish */}
             <button
               onClick={() => setTheme(isDark ? 'light' : 'dark')}
-              className={`p-2 rounded-xl border transition-all ${
+              className={`p-2 rounded-xl border transition-all cursor-pointer ${
                 isDark ? 'bg-slate-900 border-slate-800 text-amber-400' : 'bg-white border-slate-200 text-slate-700 shadow-xs'
               }`}
             >
@@ -400,11 +651,14 @@ export default function App() {
         </div>
 
         {/* Mobil Nav */}
-        <div className="flex md:hidden items-center justify-between gap-1 pt-3 border-t border-inherit mt-2 text-xs font-bold">
-          <button onClick={() => setActiveTab('player')} className={`flex-1 py-1.5 rounded-lg ${activeTab === 'player' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Pleyer</button>
-          <button onClick={() => setActiveTab('visualizer')} className={`flex-1 py-1.5 rounded-lg ${activeTab === 'visualizer' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Vizual</button>
-          <button onClick={() => setActiveTab('ambient')} className={`flex-1 py-1.5 rounded-lg ${activeTab === 'ambient' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Mikser</button>
-          <button onClick={() => setActiveTab('lyrics')} className={`flex-1 py-1.5 rounded-lg ${activeTab === 'lyrics' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Matn</button>
+        <div className="flex lg:hidden items-center justify-between gap-1 pt-2.5 border-t border-inherit mt-2 text-xs font-bold overflow-x-auto scrollbar-none">
+          <button onClick={() => setActiveTab('player')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'player' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Pleyer</button>
+          <button onClick={() => setActiveTab('search')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap text-pink-400 ${activeTab === 'search' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>🌐 Qidiruv</button>
+          <button onClick={() => setActiveTab('history')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'history' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Tarix</button>
+          <button onClick={() => setActiveTab('favorites')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'favorites' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Sevimlilar</button>
+          <button onClick={() => setActiveTab('visualizer')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'visualizer' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Vizual</button>
+          <button onClick={() => setActiveTab('ambient')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'ambient' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Mikser</button>
+          <button onClick={() => setActiveTab('lyrics')} className={`px-2.5 py-1.5 rounded-lg whitespace-nowrap ${activeTab === 'lyrics' ? 'bg-pink-500 text-white' : themeClasses.inactiveTab}`}>Matn</button>
         </div>
       </header>
 
@@ -432,7 +686,7 @@ export default function App() {
             <div className="flex-1 text-center md:text-left space-y-3 z-10">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pink-500/10 text-pink-500 text-xs font-bold border border-pink-500/20">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>{currentTrack.genre} • {currentTrack.bpm} BPM</span>
+                <span>{currentTrack.genre} • {currentTrack.bpm || 120} BPM {currentTrack.isOnline && '• 🌐 Online Stream'}</span>
               </div>
 
               <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight">
@@ -452,19 +706,28 @@ export default function App() {
               <div className="flex items-center justify-center md:justify-start gap-4 pt-2">
                 <button
                   onClick={togglePlay}
-                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-extrabold text-sm shadow-lg shadow-pink-500/30 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all"
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white font-extrabold text-sm shadow-lg shadow-pink-500/30 flex items-center gap-2 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                 >
                   {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
                   <span>{isPlaying ? 'Pauza' : 'Tinglash'}</span>
                 </button>
 
                 <button
-                  onClick={() => toggleFavorite(currentTrack.id)}
-                  className={`p-3 rounded-2xl border transition-all ${
+                  onClick={() => toggleFavorite(currentTrack)}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer ${
                     currentTrack.isFavorite ? 'bg-rose-500/15 border-rose-500/30 text-rose-500' : 'border-inherit text-slate-400'
                   }`}
+                  title="Sevimlilarga qo'shish"
                 >
                   <Heart className={`w-5 h-5 ${currentTrack.isFavorite ? 'fill-current' : ''}`} />
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('search')}
+                  className="px-4 py-3 rounded-2xl border border-inherit text-xs font-bold flex items-center gap-2 hover:bg-purple-500/10 hover:text-purple-400 transition-colors cursor-pointer"
+                >
+                  <Globe className="w-4 h-4 text-purple-400" />
+                  <span>Internetdan Qidirish</span>
                 </button>
               </div>
             </div>
@@ -482,7 +745,7 @@ export default function App() {
                   <button
                     key={g}
                     onClick={() => setSelectedGenre(g)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border ${
+                    className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all border cursor-pointer ${
                       selectedGenre === g
                         ? 'bg-pink-500 text-white border-pink-400 shadow-sm'
                         : isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
@@ -494,13 +757,13 @@ export default function App() {
               </div>
 
               {/* Qidiruv */}
-              <div className="relative min-w-[220px]">
+              <div className="relative min-w-[240px]">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Qo'shiq yoki ijrochi qidirish..."
+                  placeholder="Katalogdan qidirish..."
                   className={`w-full py-2 pl-9 pr-3 text-xs rounded-xl border outline-none ${
                     isDark ? 'bg-slate-900 border-slate-700 text-white focus:border-pink-500' : 'bg-white border-slate-300 text-slate-900 focus:border-pink-500 shadow-xs'
                   }`}
@@ -517,12 +780,7 @@ export default function App() {
                   return (
                     <div
                       key={track.id}
-                      onClick={() => {
-                        setCurrentTrackIndex(tracks.findIndex(t => t.id === track.id));
-                        setIsPlaying(true);
-                        setCurrentTime(0);
-                        playSynthesizerBeat();
-                      }}
+                      onClick={() => handleSelectTrackToPlay(track)}
                       className={`p-4 flex items-center justify-between gap-4 cursor-pointer transition-all ${
                         isCurrent
                           ? isDark ? 'bg-pink-500/10 border-l-4 border-l-pink-500' : 'bg-pink-50 border-l-4 border-l-pink-500'
@@ -551,6 +809,12 @@ export default function App() {
                       </div>
 
                       <div className="flex items-center gap-4 text-xs">
+                        {track.isOnline && (
+                          <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 font-bold text-[10px]">
+                            Online
+                          </span>
+                        )}
+
                         <span className="hidden sm:inline-block px-2.5 py-1 rounded-full bg-slate-500/10 text-slate-400 font-bold text-[11px]">
                           {track.genre}
                         </span>
@@ -560,8 +824,8 @@ export default function App() {
                         </span>
 
                         <button
-                          onClick={(e) => toggleFavorite(track.id, e)}
-                          className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors"
+                          onClick={(e) => toggleFavorite(track, e)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
                         >
                           <Heart className={`w-4 h-4 ${track.isFavorite ? 'text-rose-500 fill-current' : ''}`} />
                         </button>
@@ -575,7 +839,45 @@ export default function App() {
         </main>
       )}
 
-      {/* 2-TAB: TO'LIQ SPEKTR VIZUALAYZER */}
+      {/* 2-TAB: INTERNET QIDIRUV (ONLINE SEARCH) */}
+      {activeTab === 'search' && (
+        <main className="max-w-6xl mx-auto w-full px-4 lg:px-8 py-8 flex-1">
+          <OnlineSearch
+            onPlayTrack={handleSelectTrackToPlay}
+            currentTrackId={currentTrack.id}
+            isPlaying={isPlaying}
+            onToggleFavorite={toggleFavorite}
+            isDark={isDark}
+          />
+        </main>
+      )}
+
+      {/* 3-TAB: TARIX (HISTORY) */}
+      {activeTab === 'history' && (
+        <main className="max-w-5xl mx-auto w-full px-4 lg:px-8 py-8 flex-1">
+          <HistoryView
+            user={user}
+            onOpenAuth={() => { setAuthModalMode('login'); setIsAuthModalOpen(true); }}
+            onPlayTrack={handleSelectTrackToPlay}
+            isDark={isDark}
+          />
+        </main>
+      )}
+
+      {/* 4-TAB: SEVIMLILAR (FAVORITES) */}
+      {activeTab === 'favorites' && (
+        <main className="max-w-5xl mx-auto w-full px-4 lg:px-8 py-8 flex-1">
+          <FavoritesView
+            user={user}
+            onOpenAuth={() => { setAuthModalMode('login'); setIsAuthModalOpen(true); }}
+            onPlayTrack={handleSelectTrackToPlay}
+            onToggleFavorite={toggleFavorite}
+            isDark={isDark}
+          />
+        </main>
+      )}
+
+      {/* 5-TAB: TO'LIQ SPEKTR VIZUALAYZER */}
       {activeTab === 'visualizer' && (
         <main className="max-w-5xl mx-auto w-full px-4 lg:px-8 py-8 space-y-6 flex-1">
           <div className={`${themeClasses.card} rounded-3xl p-6 sm:p-10 border space-y-6 text-center`}>
@@ -586,7 +888,7 @@ export default function App() {
                   <span>Real-Vaqtli Web Audio Spektrogrammasi</span>
                 </h2>
                 <p className={`text-xs ${themeClasses.textMuted}`}>
-                  {currentTrack.title} — {currentTrack.artist} ({currentTrack.bpm} BPM)
+                  {currentTrack.title} — {currentTrack.artist} ({currentTrack.bpm || 120} BPM)
                 </p>
               </div>
 
@@ -596,7 +898,7 @@ export default function App() {
                   <button
                     key={m}
                     onClick={() => setVisualizerMode(m)}
-                    className={`px-3 py-1 rounded-lg uppercase transition-all ${
+                    className={`px-3 py-1 rounded-lg uppercase transition-all cursor-pointer ${
                       visualizerMode === m ? 'bg-pink-500 text-white shadow-xs' : themeClasses.textMuted
                     }`}
                   >
@@ -614,7 +916,7 @@ export default function App() {
             <div className="flex justify-center items-center gap-4">
               <button
                 onClick={togglePlay}
-                className="px-8 py-3.5 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white font-extrabold text-sm shadow-lg shadow-pink-500/30 flex items-center gap-2"
+                className="px-8 py-3.5 rounded-2xl bg-gradient-to-r from-pink-500 to-purple-600 text-white font-extrabold text-sm shadow-lg shadow-pink-500/30 flex items-center gap-2 cursor-pointer"
               >
                 {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
                 <span>{isPlaying ? 'Pauza' : 'Vizualizatsiyani Yoqish'}</span>
@@ -624,7 +926,7 @@ export default function App() {
         </main>
       )}
 
-      {/* 3-TAB: FOKUS & AMBIENT MIKSER */}
+      {/* 6-TAB: FOKUS & AMBIENT MIKSER */}
       {activeTab === 'ambient' && (
         <main className="max-w-4xl mx-auto w-full px-4 lg:px-8 py-8 space-y-6 flex-1">
           <div className={`${themeClasses.card} rounded-3xl p-6 sm:p-10 border space-y-6`}>
@@ -671,7 +973,7 @@ export default function App() {
         </main>
       )}
 
-      {/* 4-TAB: MATN (LYRICS) */}
+      {/* 7-TAB: MATN (LYRICS) */}
       {activeTab === 'lyrics' && (
         <main className="max-w-2xl mx-auto w-full px-4 lg:px-8 py-8 space-y-6 flex-1">
           <div className={`${themeClasses.card} rounded-3xl p-8 border text-center space-y-6`}>
@@ -681,7 +983,7 @@ export default function App() {
             </div>
 
             <div className="space-y-4 py-4 text-sm font-medium leading-relaxed">
-              {currentTrack.lyrics.map((line, idx) => (
+              {currentTrack.lyrics?.map((line, idx) => (
                 <p
                   key={idx}
                   className={`p-3 rounded-xl transition-all ${
@@ -703,7 +1005,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
 
           {/* Hozir ijro etilayotgan trek */}
-          <div className="flex items-center gap-3 w-full md:w-64">
+          <div className="flex items-center gap-3 w-full md:w-72">
             <img
               src={currentTrack.coverUrl}
               alt={currentTrack.title}
@@ -714,8 +1016,8 @@ export default function App() {
               <p className={`text-[11px] truncate ${themeClasses.textMuted}`}>{currentTrack.artist}</p>
             </div>
             <button
-              onClick={() => toggleFavorite(currentTrack.id)}
-              className="p-1.5 text-slate-400 hover:text-rose-500"
+              onClick={() => toggleFavorite(currentTrack)}
+              className="p-1.5 text-slate-400 hover:text-rose-500 cursor-pointer"
             >
               <Heart className={`w-4 h-4 ${currentTrack.isFavorite ? 'text-rose-500 fill-current' : ''}`} />
             </button>
@@ -726,7 +1028,7 @@ export default function App() {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setIsShuffle(!isShuffle)}
-                className={`p-1.5 transition-colors ${isShuffle ? 'text-pink-500' : 'text-slate-400'}`}
+                className={`p-1.5 transition-colors cursor-pointer ${isShuffle ? 'text-pink-500' : 'text-slate-400'}`}
                 title="Tasodifiy (Shuffle)"
               >
                 <Shuffle className="w-3.5 h-3.5" />
@@ -734,28 +1036,28 @@ export default function App() {
 
               <button
                 onClick={handlePrevTrack}
-                className="p-2 text-slate-300 hover:text-white transition-colors"
+                className="p-2 text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 <SkipBack className="w-4 h-4 fill-current" />
               </button>
 
               <button
                 onClick={togglePlay}
-                className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 hover:scale-105 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-pink-500/25 transition-transform"
+                className="w-10 h-10 rounded-full bg-gradient-to-r from-pink-500 to-purple-600 hover:scale-105 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-pink-500/25 transition-transform cursor-pointer"
               >
                 {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
               </button>
 
               <button
                 onClick={handleNextTrack}
-                className="p-2 text-slate-300 hover:text-white transition-colors"
+                className="p-2 text-slate-300 hover:text-white transition-colors cursor-pointer"
               >
                 <SkipForward className="w-4 h-4 fill-current" />
               </button>
 
               <button
                 onClick={() => setIsLoop(!isLoop)}
-                className={`p-1.5 transition-colors ${isLoop ? 'text-pink-500' : 'text-slate-400'}`}
+                className={`p-1.5 transition-colors cursor-pointer ${isLoop ? 'text-pink-500' : 'text-slate-400'}`}
                 title="Qaytarish (Loop)"
               >
                 <Repeat className="w-3.5 h-3.5" />
@@ -768,12 +1070,18 @@ export default function App() {
               <input
                 type="range"
                 min="0"
-                max={currentTrack.duration}
+                max={currentTrack.duration || 30}
                 value={currentTime}
-                onChange={(e) => setCurrentTime(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setCurrentTime(val);
+                  if (audioElRef.current && currentTrack.audioUrl) {
+                    audioElRef.current.currentTime = val;
+                  }
+                }}
                 className="flex-1 accent-pink-500 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full cursor-pointer"
               />
-              <span className={themeClasses.textMuted}>{formatTime(currentTrack.duration)}</span>
+              <span className={themeClasses.textMuted}>{formatTime(currentTrack.duration || 30)}</span>
             </div>
           </div>
 
@@ -781,7 +1089,7 @@ export default function App() {
           <div className="hidden md:flex items-center gap-2.5 w-44 justify-end">
             <button
               onClick={() => setIsMuted(!isMuted)}
-              className="text-slate-400 hover:text-pink-500 transition-colors"
+              className="text-slate-400 hover:text-pink-500 transition-colors cursor-pointer"
             >
               {isMuted || volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -796,6 +1104,17 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={(newUser) => {
+          setUser(newUser);
+        }}
+        isDark={isDark}
+        initialMode={authModalMode}
+      />
     </div>
   );
 }

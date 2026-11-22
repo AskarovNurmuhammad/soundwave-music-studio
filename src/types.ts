@@ -9,6 +9,8 @@ export interface Track {
   bpm: number;
   lyrics: string[];
   isFavorite: boolean;
+  audioUrl?: string;
+  isOnline?: boolean;
 }
 
 export type VisualizerMode = 'bars' | 'wave' | 'pulse';
@@ -20,4 +22,35 @@ export interface AmbientSound {
   icon: string;
   volume: number; // 0 to 100
   isPlaying: boolean;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  created_at: string;
+}
+
+export interface HistoryItem {
+  historyId: number;
+  id: string;
+  title: string;
+  artist: string;
+  coverUrl: string;
+  audioUrl: string;
+  genre: string;
+  duration: number;
+  playedAt: string;
+}
+
+export interface FavoriteItem {
+  favId: number;
+  id: string;
+  title: string;
+  artist: string;
+  coverUrl: string;
+  audioUrl: string;
+  genre: string;
+  duration: number;
+  createdAt: string;
 }

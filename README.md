@@ -1,103 +1,91 @@
-# 🎵 SoundWave Studio
+# 🎵 SoundWave Studio Pro (Full-Stack Edition)
 
-A next-generation, high-performance **Web Audio Player & Real-Time Spectrum Visualizer** built with **React 19, TypeScript (TSX), Tailwind CSS**, and the native HTML5 **Web Audio API**.
+A high-performance **Full-Stack Web Audio Player, Online Music Search & Real-Time Spectrum Visualizer** built with **FastAPI (Python)** backend, **SQLite** database, **React 19 + TypeScript (TSX)**, **Tailwind CSS v4**, and the native **HTML5 Web Audio API**.
 
 ![SoundWave Studio Banner](https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80)
 
 ---
 
-## ✨ Key Features
+## ✨ Features
 
-- 🎧 **Interactive Web Audio Synthesizer & Player**: 
-  - Dynamic procedural audio synthesis (ambient synth, lo-fi beats, chord pads, acoustic melodies, and energetic basslines) built entirely in Web Audio API.
-  - Multi-track playlist with rich metadata (duration, BPM, genre, mood, lyrics, high-res covers).
-- 📊 **Real-time Canvas Spectrum Visualizer**:
-  - Three distinct rendering modes:
-    - **Frequency Spectrum**: Glowing neon gradient bars reacting dynamically to real-time audio frequencies.
-    - **Smooth Oscilloscope Waveform**: Continuous sinusoidal wave geometry with dynamic glow.
-    - **Circular Energy Pulse**: Concentric radial frequency analyzer with rotational phase effects.
-- 🌧️ **Ambient Background Soundscape Mixer**:
-  - Layer simultaneous realistic soundscapes: Gentle Rain 🌧️, Cozy Campfire 🔥, Coffee Shop Chatter ☕, Forest Birds 🌲, and Ocean Waves 🌊.
-  - Independent volume fader controls for each ambient layer for deep focus, studying, or relaxation.
-- 🎛️ **Graphic Equalizer & Presets**:
-  - 5-Band EQ (Bass, Low-Mid, Mid, High-Mid, Treble) with real-time gain adjustment.
-  - One-click presets: Flat, Bass Boost, Vocal Enhance, Lo-Fi Chill, and Electronic Dance.
-- 🎤 **Synchronized Interactive Lyrics Panel**:
-  - Real-time lyric line tracking with synchronized auto-scrolling and timestamp clicking.
-- 🌓 **High-Contrast Dark & Light Themes**:
-  - Meticulously designed dual theme system with crisp borders, sleek glassmorphism, and zero washed-out elements.
-- 🔍 **Fast Search & Genre Filtering**:
-  - Instant filter by genre (Lo-Fi, Synthwave, Ambient, Chillhop, Electronic) and search by title, artist, or tags.
-- 💾 **Favorites & Local Persistence**:
-  - Save your favorite tracks locally with responsive mobile + desktop playback controls.
+### 🌐 1. Live Internet Music Search & Streaming
+- Search **any artist or song in the world** in real-time (e.g., Billie Eilish, Eminem, The Weeknd, Xamdam Sobirov, Konsta, Alan Walker, Imagine Dragons).
+- Fetches official high-res cover art (600x600), artist, album, duration, and direct high-quality audio streams.
+- Plays directly in SoundWave Studio player with live Canvas Spectrum visualizer feedback!
+
+### 👤 2. User Authentication & Multi-User Accounts
+- User Registration and Login with encrypted password hashing (`SHA-256`) and bearer session tokens.
+- Each user has their own private listening history and favorites database.
+- Sleek interactive Auth Modal with instant login/register toggle and confetti celebrations.
+
+### 🕒 3. Listening History ("Eshitilganlar Tarixi")
+- Automatically logs every song played by the logged-in user into SQLite with timestamp and metadata.
+- Human-friendly relative timestamps (e.g. *"Hozirgina"*, *"15 daqiqa oldin"*, *"2 soat oldin"*).
+- One-click replay from history and "Tarixni Tozalash" (Clear History) functionality.
+
+### ❤️ 4. Synced Favorites ("Sevimlilar")
+- Bookmark and like tracks across the player, search results, or history.
+- Stored permanently in user's profile in the SQLite backend.
+
+### 📊 5. Real-Time Canvas Spectrum Visualizer
+- 3 dynamic rendering modes:
+  - **Neon Frequency Bars**: Glowing neon bars reacting to audio frequencies.
+  - **Oscilloscope Wave**: Continuous glowing audio waveform.
+  - **Radial Pulse**: Concentric pulsating circular visualizer.
+
+### 🌧️ 6. Lo-Fi Ambient Nature Soundscape Mixer
+- Layer focus sounds: Rain 🌧️, Campfire 🔥, Coffee Shop ☕, Forest Birds 🌲, White Noise 📻.
+- Independent volume sliders for deep study and coding sessions.
+
+### 🌓 7. Dual Themes & Accessibility
+- High-contrast Dark Mode & clean Light Mode with zero washed-out elements.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
-- **Build Tool**: [Vite 6](https://vitejs.dev/)
-- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
-- **Icons**: [Lucide React](https://lucide.dev/)
-- **Sound Engine**: Native Web Audio API (`AudioContext`, `BiquadFilterNode`, `AnalyserNode`, `OscillatorNode`, `GainNode`)
-- **Visuals**: HTML5 2D Canvas & Web Animations API
-- **Effects**: `canvas-confetti`
+- **Backend**:
+  - Python 3.12+
+  - [FastAPI](https://fastapi.tiangolo.com/) (Asynchronous REST API)
+  - [Uvicorn](https://www.uvicorn.org/) (ASGI Server)
+  - [SQLite3](https://sqlite.org/) (Persistent Database)
+  - Requests & Pydantic
+- **Frontend**:
+  - [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
+  - [Vite 6](https://vitejs.dev/)
+  - [Tailwind CSS v4](https://tailwindcss.com/)
+  - [Lucide React](https://lucide.dev/)
+  - [Canvas Confetti](https://www.npmjs.com/package/canvas-confetti)
+- **Audio Engine**: Native HTML5 Web Audio API & HTML5 Audio Element
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (One-Click)
 
-### Prerequisites
-- Node.js (v18.0.0 or higher)
-- npm / yarn / pnpm
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/AskarovNurmuhammad/soundwave-music-studio.git
-
-# Navigate to project folder
-cd soundwave-music-studio
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
+### Option A: One-Click Batch Launcher (Windows)
+Double-click `run_fullstack.bat` in the project root:
+```cmd
+run_fullstack.bat
 ```
+This automatically starts the FastAPI backend, starts the Vite frontend, and opens [http://localhost:5173](http://localhost:5173) in your browser!
 
-Open [http://localhost:5173](http://localhost:5173) in your browser to start exploring SoundWave Studio!
+### Option B: Manual Setup
 
-### Production Build
+1. **Start Backend**:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+   ```
 
-```bash
-# Build optimized bundle
-npm run build
-
-# Preview production build locally
-npm run preview
-```
-
----
-
-## 🎹 Keyboard Shortcuts
-
-| Shortcut | Action |
-| :--- | :--- |
-| `Space` | Play / Pause current track |
-| `N` / `Right Arrow` | Skip to next track |
-| `P` / `Left Arrow` | Return to previous track |
-| `M` | Mute / Unmute audio |
-| `V` | Cycle visualizer rendering modes |
-| `L` | Toggle lyrics modal |
+2. **Start Frontend**:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Open [http://localhost:5173](http://localhost:5173).
 
 ---
 
 ## 📄 License
-
-This project is licensed under the MIT License — feel free to use, modify, and build upon it!
-
----
-
-*Part of the 30-Day Frontend & Full-Stack Challenge by [Nurmuhammad Askarov](https://github.com/AskarovNurmuhammad).*
+MIT License — Created as part of the 30-Day Frontend & Full-Stack Challenge by [Nurmuhammad Askarov](https://github.com/AskarovNurmuhammad).
